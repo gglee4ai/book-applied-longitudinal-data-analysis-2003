@@ -309,4 +309,247 @@ by_id %>%
 
 ## 2.3 Exploring differences in change across people
 
+```{r}
+tolerance_pp %>%
+  ggplot(aes(age, tolerance)) +
+  stat_smooth(method = "loess", se = FALSE, span = .9, size = 2) +
+  stat_smooth(aes(group = id), method = "loess", se = FALSE, span = .9, size = 1 / 4) +
+  coord_cartesian(ylim = c(0, 4)) +
+  theme(panel.grid = element_blank()) +
+  theme(aspect.ratio = 1)
+```
+
+```{r}
+tolerance_pp %>%
+  ggplot(aes(age, tolerance)) +
+  stat_smooth(method = "lm", se = FALSE, span = .9, size = 2) +
+  stat_smooth(aes(group = id), method = "lm", se = FALSE, span = .9, size = 1 / 4) +
+  coord_cartesian(ylim = c(0, 4)) +
+  theme(panel.grid = element_blank()) +
+  theme(aspect.ratio = 1)
+```
+
+```{r}
+fit2.3 <-
+  update(fit2.1,
+    newdata = tolerance_pp,
+    file = "fits/fit02.03"
+  )
+```
+
+```{r}
+fit2.3
+```
+
+```{r}
+fixef(fit2.3)
+```
+
+```{r}
+tol_fitted <-
+  mean_structure %>%
+  mutate(
+    `11` = init_stat_est + rate_change_est * 0,
+    `15` = init_stat_est + rate_change_est * 4
+  ) %>%
+  select(id, `11`, `15`) %>%
+  pivot_longer(-id, names_to = "age", values_to = "tolerance") %>%
+  mutate(age = as.integer(age))
+tol_fitted
+```
+
+```{r}
+tol_fitted %>%
+  ggplot(aes(x = age, y = tolerance, group = id)) +
+  geom_line(color = "blue", size = 1 / 4) +
+  geom_abline(
+    intercept = fixef(fit2.3)[1, 1] + fixef(fit2.3)[2, 1] * -11,
+    slope = fixef(fit2.3)[2, 1],
+    color = "blue", size = 2
+  ) +
+  coord_cartesian(ylim = c(0, 4)) +
+  theme(panel.grid = element_blank()) +
+  theme(aspect.ratio = 1)
+```
+
+```{r}
+mean_structure %>%
+  pivot_longer(ends_with("est")) %>%
+  group_by(name) %>%
+  summarize(
+    mean = mean(value),
+    sd = sd(value)
+  ) %>%
+  mutate(across(where(is.numeric), round, digits = 2))
+```
+
+```{r}
+mean_structure %>%
+  select(init_stat_est, rate_change_est) %>%
+  cor() %>%
+  round(digits = 2)
+```
+
+```{r}
+fit2.4 <-
+  update(fit2.1,
+    newdata = tolerance_pp,
+    tolerance ~ 1 + time + male + time:male,
+    file = "fits/fit02.04"
+  )
+```
+
+```{r}
+fit2.4
+```
+
+```{r}
+fixef(fit2.4)
+```
+
+```{r}
+tol_fitted_male <-
+  tibble(
+    male = rep(0:1, each = 2),
+    age = rep(c(11, 15), times = 2)
+  ) %>%
+  mutate(time = age - 11) %>%
+  mutate(tolerance = fixef(fit2.4)[1, 1] +
+    fixef(fit2.4)[2, 1] * time +
+    fixef(fit2.4)[3, 1] * male +
+    fixef(fit2.4)[4, 1] * time * male) %>%
+  mutate(sex = (if_else(male == 0, "female", "male")))
+tol_fitted_male
+```
+
+```{r}
+tol_fitted %>%
+  left_join(tolerance_pp %>% select(id, male) %>% distinct(), by = "id") %>%
+  mutate(sex = (if_else(male == 0, "female", "male"))) %>%
+  ggplot(aes(age, tolerance, color = factor(male))) +
+  geom_line(aes(group = id), size = 1 / 4) +
+  geom_line(data = tol_fitted_male, size = 2) +
+  coord_cartesian(ylim = c(0, 4)) +
+  facet_wrap(~sex) +
+  scale_color_viridis_d(end = .75) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+tolerance_pp <-
+  tolerance_pp %>%
+  mutate(exposure_01 = if_else(exposure > median(exposure), 1, 0))
+```
+
+```{r}
+fit2.5 <-
+  update(fit2.4,
+    newdata = tolerance_pp,
+    tolerance ~ 1 + time + exposure_01 + time:exposure_01,
+    file = "fits/fit02.05"
+  )
+```
+
+```{r}
+fit2.5
+```
+
+```{r}
+tol_fitted_exposure <-
+  crossing(
+    exposure_01 = 0:1,
+    age = c(11, 15)
+  ) %>%
+  mutate(time = age - 11) %>%
+  mutate(
+    tolerance = fixef(fit2.5)[1, 1] +
+      fixef(fit2.5)[2, 1] * time +
+      fixef(fit2.5)[3, 1] * exposure_01 +
+      fixef(fit2.5)[4, 1] * time * exposure_01,
+    exposure = if_else(exposure_01 == 1, "high exposure", "low exposure") %>%
+      factor(., levels = c("low exposure", "high exposure"))
+  )
+
+tol_fitted_exposure
+```
+
+```{r}
+tol_fitted %>%
+  # we need to add `exposure_01` values to `tol_fitted`
+  left_join(tolerance_pp %>% select(id, exposure_01) %>% distinct(),
+    by = "id"
+  ) %>%
+  mutate(exposure = factor(
+    if_else(exposure_01 == 1, "high exposure", "low exposure"),
+    levels = c("low exposure", "high exposure")
+  )) %>%
+  ggplot(aes(x = age, y = tolerance, color = exposure)) +
+  geom_line(aes(group = id), size = 1 / 4) +
+  geom_line(data = tol_fitted_exposure, size = 2) +
+  coord_cartesian(ylim = c(0, 4)) +
+  facet_wrap(~exposure) +
+  scale_color_viridis_d(option = "A", end = .75) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+p1 <-
+  mean_structure %>%
+  pivot_longer(ends_with("est")) %>%
+  mutate(
+    name = factor(
+      name,
+      labels = c("Fitted initial status", "Fitted rate of change")
+    )
+  ) %>%
+  left_join(tolerance_pp %>% select(id, male) %>% distinct(), by = "id") %>%
+  ggplot(aes(factor(male), value, color = name)) +
+  geom_point(alpha = 1 / 2) +
+  labs(x = "male", y = NULL) +
+  facet_wrap(~name, scale = "free_y", ncol = 1) +
+  scale_color_viridis_d(option = "B", begin = .2, end = .7) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank()
+  ) #+
+# theme(aspect.ratio = 0.9)
+p1
+```
+
+```{r}
+p2 <-
+  mean_structure %>%
+  pivot_longer(ends_with("est")) %>%
+  mutate(
+    name = factor(name, labels = c("Fitted initial status", "Fitted rate of change"))
+  ) %>%
+  left_join(tolerance_pp %>% select(id, exposure) %>% distinct(),
+    by = "id"
+  ) %>%
+  ggplot(aes(exposure, value, color = name)) +
+  geom_point(alpha = 1 / 2) +
+  scale_x_continuous(breaks = 0:2, limits = c(0, 2.4)) +
+  labs(y = NULL) +
+  facet_wrap(~name, scale = "free_y", ncol = 1) +
+  scale_color_viridis_d(option = "B", begin = .2, end = .7) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank()
+  ) #+
+# theme(aspect.ratio = 0.9)
+
+p2
+```
+
+```{r, fig.width=3, fig.height = 3}
+library(patchwork)
+p1 + p2 + scale_y_continuous(breaks = NULL)
+```
+
 ## 2.4 Improving the precision and reliability of OLS / single-level-Bayesian-estimated rates of change: Lessons for research design
