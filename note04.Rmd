@@ -1,0 +1,601 @@
+---
+title: "not04"
+output: html_notebook
+---
+
+# 4 Doing Data Analysis with the Multilevel Model for Change
+
+## 4.1 Example: Changes in adolescent alcohol use
+
+```{r}
+library(tidyverse)
+alcohol1_pp <- read_csv("alda/alcohol1_pp.csv")
+alcohol1_pp
+```
+
+여기서
+
+```{r}
+alcohol1_pp %>%
+  summarize(
+    mpeer = mean(peer) %>% round(digits = 3),
+    mcoa = mean(coa) %>% round(digits = 3)
+  )
+```
+
+```{r}
+alcohol1_pp %>%
+  filter(id %in% c(4, 14, 23, 32, 41, 56, 65, 82)) %>%
+  ggplot(aes(age, alcuse)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_point() +
+  coord_cartesian(xlim = c(13, 17), ylim = c(-1, 4)) +
+  facet_wrap(~id, ncol = 4) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+set.seed(4)
+
+alcohol1_pp %>%
+  # group_by(id) %>%
+  # nest() %>%
+  # ungroup() %>%
+  # sample_n(size = 32, replace = TRUE) %>%
+  # unnest(data) %>%
+  mutate(coa = ifelse(coa == 0, "coa = 0", "coa = 1")) %>%
+  ggplot(aes(age, alcuse, group = id)) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, size = 1 / 4) +
+  coord_cartesian(xlim = c(13, 17), ylim = c(-1, 4)) +
+  facet_wrap(~coa) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+set.seed(4)
+
+alcohol1_pp %>%
+  # group_by(id) %>%
+  # nest() %>%
+  # ungroup() %>%
+  # sample_n(size = 32, replace = T) %>%
+  # unnest(data) %>%
+  mutate(hp = ifelse(peer < mean(peer), "low peer", "high peer")) %>%
+  mutate(hp = factor(hp, levels = c("low peer", "high peer"))) %>%
+  ggplot(aes(x = age, y = alcuse, group = id)) +
+  stat_smooth(method = "lm", se = F, size = 1 / 4) +
+  coord_cartesian(
+    xlim = c(13, 17),
+    ylim = c(-1, 4)
+  ) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(~hp)
+```
+
+## 4.2 The composite specification of the multilevel model for change
+
+## 4.3 Methods of estimation, revisited
+
+## 4.4 First steps: Fitting two unconditional multilevel models for change
+
+```{r}
+library(brms)
+```
+
+```{r}
+get_prior(
+  data = alcohol1_pp,
+  family = gaussian,
+  alcuse ~ 1 + (1 | id)
+)
+```
+
+```{r}
+fit4.1 <-
+  brm(
+    data = alcohol1_pp,
+    family = gaussian,
+    alcuse ~ 1 + (1 | id),
+    prior = c(
+      prior(student_t(3, 1, 2.5), class = Intercept),
+      prior(student_t(3, 0, 2.5), class = sd),
+      prior(student_t(3, 0, 2.5), class = sigma)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 4,
+    file = "fits/fit04.01"
+  )
+```
+
+```{r}
+fit4.1
+```
+
+```{r}
+post <- posterior_samples(fit4.1)
+glimpse(post[, 1:12])
+```
+
+```{r}
+v <-
+  post %>%
+  select(sigma, sd_id__Intercept) %>%
+  mutate(
+    sigma_2_epsilon = sigma^2,
+    sigma_2_0 = sd_id__Intercept^2
+  )
+v
+```
+
+```{r}
+v %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  geom_vline(xintercept = c(.25, .5, .75, 1), color = "white") +
+  geom_density(size = 0, fill = "black") +
+  scale_x_continuous(
+    NULL,
+    limits = c(0, 1.25), breaks = seq(0, 1.25, by = .25)
+  ) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  facet_wrap(~name, scales = "free_y") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+v %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarize(
+    mean = mean(value),
+    median = median(value),
+    sd = sd(value),
+    ll = quantile(value, prob = .025),
+    ul = quantile(value, prob = .975)
+  ) %>%
+  mutate(across(where(is.double), round, digits = 3))
+```
+
+```{r}
+v %>%
+  transmute(rho = sd_id__Intercept^2 / (sd_id__Intercept^2 + sigma^2)) %>%
+  ggplot(aes(rho)) +
+  geom_density(size = 0, fill = "black") +
+  scale_x_continuous(expression(rho), limits = 0:1) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+v %>%
+  transmute(rho = sd_id__Intercept^2 / (sd_id__Intercept^2 + sigma^2)) %>%
+  summarise(
+    mean = mean(rho),
+    median = median(rho),
+    sd = sd(rho),
+    ll = quantile(rho, prob = .025),
+    ul = quantile(rho, prob = .975)
+  ) %>%
+  mutate_if(is.double, round, digits = 3)
+```
+
+```{r}
+fixef(fit4.1)
+```
+
+```{r}
+post[1:6, 1:3]
+```
+
+```{r}
+post %>%
+  transmute(gamma_00_squared = b_Intercept^2) %>%
+  summarise(
+    mean = mean(gamma_00_squared),
+    median = median(gamma_00_squared),
+    sd = sd(gamma_00_squared),
+    ll = quantile(gamma_00_squared, prob = .025),
+    ul = quantile(gamma_00_squared, prob = .975)
+  ) %>%
+  mutate_if(is.double, round, digits = 3) %>%
+  pivot_longer(everything())
+```
+
+```{r}
+tibble(x = seq(-20, 20, length.out = 1e3)) %>%
+  mutate(density = metRology::dt.scaled(x, df = 3, mean = 1, sd = 2.5)) %>%
+  ggplot(aes(x, density)) +
+  geom_vline(xintercept = 1, color = "white") +
+  geom_line() +
+  labs(
+    title = expression(paste("prior for ", gamma[0][0])),
+    x = "parameter space"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+tibble(x = seq(from = 0, to = 20, length.out = 1e3)) %>%
+  mutate(density = metRology::dt.scaled(x, df = 3, mean = 0, sd = 2.5)) %>%
+  ggplot(aes(x = x, y = density)) +
+  geom_vline(xintercept = 0, color = "white") +
+  geom_line() +
+  labs(
+    title = expression(paste("prior for both ", sigma[0], " and ", sigma[epsilon])),
+    x = "parameter space"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+get_prior(
+  data = alcohol1_pp,
+  family = gaussian,
+  alcuse ~ 0 + Intercept + age_14 + (1 + age_14 | id)
+)
+```
+
+```{r}
+fit4.2 <-
+  brm(
+    data = alcohol1_pp,
+    family = gaussian,
+    alcuse ~ 0 + Intercept + age_14 + (1 + age_14 | id),
+    prior = c(
+      prior(student_t(3, 0, 2.5), class = sd),
+      prior(student_t(3, 0, 2.5), class = sigma),
+      prior(lkj(1), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 4,
+    file = "fits/fit04.02"
+  )
+```
+
+```{r}
+print(fit4.2, digits = 3)
+```
+
+```{r}
+conditional_effects(fit4.2)
+conditional_effects(fit4.2, robust = FALSE)
+conditional_effects(fit4.2, robust = FALSE, prob = .8)
+```
+
+```{r}
+post <- posterior_samples(fit4.2)
+v <- post %>%
+  transmute(
+    sigma_2_epsilon = sigma^2,
+    sigma_2_0 = sd_id__Intercept^2,
+    sigma_2_1 = sd_id__age_14^2,
+    sigma_01 = sd_id__Intercept * cor_id__Intercept__age_14 * sd_id__age_14
+  )
+v
+```
+
+```{r}
+v %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value)) +
+  geom_density(size = 0, fill = "black") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  facet_wrap(~name, scales = "free") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+v %>%
+  pivot_longer(everything()) %>%
+  group_by(name) %>%
+  summarise(
+    mean = mean(value),
+    median = median(value),
+    sd = sd(value),
+    ll = quantile(value, prob = .025),
+    ul = quantile(value, prob = .975)
+  ) %>%
+  mutate(across(where(is.double), round, digits = 3))
+```
+
+```{r}
+vc <- VarCorr(fit4.2, summary = FALSE)
+str(vc)
+```
+
+```{r}
+cbind(
+  VarCorr(fit4.1, summary = F)[[2]][[1]],
+  VarCorr(fit4.2, summary = F)[[2]][[1]]
+) %>%
+  data.frame() %>%
+  mutate(across(everything(), ~ .^2)) %>%
+  set_names(str_c("fit4.", 1:2)) %>%
+  mutate(`fit4.1 - fit4.2` = fit4.1 - fit4.2) %>%
+  pivot_longer(everything()) %>%
+  mutate(name = factor(name, levels = c("fit4.1", "fit4.2", "fit4.1 - fit4.2"))) %>%
+  ggplot(aes(value)) +
+  geom_vline(xintercept = .5, color = "white") +
+  geom_density(fill = "grey25", color = "transparent") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  facet_wrap(~name, scales = "free_y", ncol = 3) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+cbind(
+  VarCorr(fit4.1, summary = F)[[2]][[1]],
+  VarCorr(fit4.2, summary = F)[[2]][[1]]
+) %>%
+  data.frame() %>%
+  mutate_all(~ .^2) %>%
+  set_names(str_c("fit4.", 1:2)) %>%
+  mutate(proportion_decline = (fit4.1 - fit4.2) / fit4.1) %>%
+  summarise(
+    mean = mean(proportion_decline),
+    median = median(proportion_decline),
+    sd = sd(proportion_decline),
+    ll = quantile(proportion_decline, prob = .025),
+    ul = quantile(proportion_decline, prob = .975)
+  ) %>%
+  mutate_if(is.double, round, digits = 3)
+```
+
+```{r}
+post %>%
+  ggplot(aes(x = cor_id__Intercept__age_14)) +
+  geom_vline(xintercept = 0, color = "white") +
+  geom_density(fill = "grey25", color = "transparent") +
+  scale_x_continuous(expression(rho[0][1]), limits = c(-1, 1)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+post %>%
+  transmute(sigma_2_residual_j = sd_id__Intercept^2 +
+    sd_id__age_14^2 * 0 +
+    2 * sd_id__Intercept * cor_id__Intercept__age_14 * sd_id__age_14 * 0 + sigma^2) %>%
+  head()
+```
+
+```{r}
+make_s2rj <- function(x) {
+  post %>%
+    transmute(sigma_2_residual_j = sd_id__Intercept^2 + sd_id__age_14^2 * x + 2 * sd_id__Intercept * cor_id__Intercept__age_14 * sd_id__age_14 * x + sigma^2) %>%
+    pull()
+}
+```
+
+```{r}
+tibble(age = 14:16) %>%
+  mutate(age_c = age - 14) %>%
+  mutate(s2rj = map(age_c, make_s2rj)) %>%
+  unnest(s2rj) %>%
+  mutate(label = str_c("age = ", age)) %>%
+  ggplot(aes(s2rj)) +
+  geom_density(fill = "grey25", color = "transparent") +
+  geom_vline(xintercept = 1, color = "grey92", linetype = 2) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(
+    title = "Behold the shape of longitudinal heteroscedasticity.",
+    x = expression(sigma[italic(Residual[j])]^2)
+  ) +
+  facet_wrap(~label, scales = "free_y", ncol = 1) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+make_rho_rj_rjp <- function(j, jp) {
+  s2rj_j <- make_s2rj(j)
+  s2rj_jp <- make_s2rj(jp)
+  post %>%
+    transmute(
+      r = (sd_id__Intercept^2 +
+        sd_id__Intercept * cor_id__Intercept__age_14 * sd_id__age_14 * (j + jp) +
+        sd_id__age_14^2 * j * jp) /
+        sqrt(s2rj_j * s2rj_jp)
+    ) %>%
+    pull()
+}
+```
+
+```{r}
+make_rho_rj_rjp(0, 1) %>% median()
+make_rho_rj_rjp(1, 2) %>% median()
+make_rho_rj_rjp(0, 2) %>% median()
+```
+
+```{r}
+tibble(occasion = 1:3) %>%
+  mutate(
+    age_c = occasion - 1,
+    j = c(1, 2, 1) - 1,
+    jp = c(2, 3, 3) - 1
+  ) %>%
+  mutate(r = map2(j, jp, make_rho_rj_rjp)) %>%
+  unnest(r) %>%
+  mutate(label = str_c("occasions ", j + 1, " and ", jp + 1)) %>%
+  ggplot(aes(r)) +
+  geom_vline(xintercept = c(.25, .5, .75), color = "white") +
+  geom_density(fill = "grey25", color = "transparent") +
+  scale_x_continuous(expression(rho[Residual[italic(j)]][Residual[italic(j * minute)]]), limits = 0:1) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  facet_wrap(~label, scales = "free_y", ncol = 1) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+fitted(fit4.2, re_formula = NA) %>% head()
+```
+
+```{r}
+fitted(fit4.2) %>% head()
+```
+
+```{r}
+f <- fitted(fit4.2, summary = FALSE, re_formula = NA) %>%
+  as_tibble() %>%
+  set_names(1:ncol(.)) %>%
+  rownames_to_column("iter")
+f
+```
+
+```{r}
+f <-
+  f %>%
+  pivot_longer(-iter, names_to = "row", values_to = "fitted") %>%
+  mutate(row = as.integer(row)) %>%
+  left_join(
+    alcohol1_pp %>%
+      mutate(row = 1:n()) %>%
+      select(row, alcuse),
+    by = "row"
+  )
+f
+```
+
+```{r}
+f %>%
+  summarize(
+    r = cor(fitted, alcuse),
+    r2 = r^2
+  )
+```
+
+```{r}
+f %>%
+  mutate(iter = as.double(iter)) %>%
+  group_by(iter) %>%
+  summarize(
+    r = cor(fitted, alcuse),
+    r2 = cor(fitted, alcuse)^2
+  )
+```
+
+```{r}
+tibble(age_14 = 0:2) %>%
+  mutate(fitted = map(age_14, ~ post$b_Intercept + post$b_age_14 * .)) %>%
+  full_join(alcohol1_pp %>% select(id, age_14, alcuse),
+    by = "age_14"
+  ) %>%
+  mutate(row = 1:n()) %>%
+  unnest(fitted) %>%
+  mutate(iter = rep(1:4000, times = alcohol1_pp %>% nrow())) %>%
+  group_by(iter) %>%
+  summarise(
+    r = cor(fitted, alcuse),
+    r2 = cor(fitted, alcuse)^2
+  )
+```
+
+```{r}
+cbind(
+  VarCorr(fit4.1, summary = F)[[2]][[1]],
+  VarCorr(fit4.2, summary = F)[[2]][[1]]
+) %>%
+  data.frame() %>%
+  mutate_all(~ .^2) %>%
+  set_names(str_c("fit4.", 1:2)) %>%
+  mutate(r_2_epsilon = (fit4.1 - fit4.2) / fit4.1) %>%
+  summarise(
+    mean = mean(r_2_epsilon),
+    median = median(r_2_epsilon),
+    sd = sd(r_2_epsilon),
+    ll = quantile(r_2_epsilon, prob = .025),
+    ul = quantile(r_2_epsilon, prob = .975)
+  ) %>%
+  mutate_if(is.double, round, digits = 3)
+```
+
+```{r}
+cbind(
+  VarCorr(fit4.1, summary = F)[[2]][[1]],
+  VarCorr(fit4.2, summary = F)[[2]][[1]]
+) %>%
+  data.frame() %>%
+  mutate_all(~ .^2) %>%
+  set_names(str_c("fit4.", 1:2)) %>%
+  mutate(r_2_epsilon = (fit4.1 - fit4.2) / fit4.1) %>%
+  ggplot(aes(x = r_2_epsilon)) +
+  geom_vline(xintercept = 0, color = "white") +
+  geom_density(fill = "grey25", color = "transparent") +
+  scale_x_continuous(expression(Pseudo ~ italic(R)[epsilon]^2), limits = c(-1, 1)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+## 4.5 Practical data analytic strategies for model building
+
+```{r}
+fit4.3 <-
+  brm(
+    data = alcohol1_pp,
+    family = gaussian,
+    alcuse ~ 0 + Intercept + age_14 + coa + age_14:coa + (1 + age_14 | id),
+    prior = c(prior(student_t(3, 0, 2.5), class = sd),
+              prior(student_t(3, 0, 2.5), class = sigma),
+              prior(lkj(1), class = cor)),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 4,
+    file = "fits/fit04.03"
+  )
+```
+
+
+```{r}
+fit4.3
+```
+
+```{r}
+conditional_effects(fit4.3)
+```
+
+```{r}
+fit4.3$data %>% 
+  glimpse()
+```
+
+
+```{r}
+fit4.4 <- 
+  update(fit4.3,
+         newdata = alcohol1_pp %>% mutate(coa = factor(coa)),
+         iter = 2000, warmup = 1000, chains = 4, cores = 4,
+         seed = 4,
+         file = "fits/fit04.04")
+```
+
+```{r}
+conditional_effects(fit4.4)
+```
+
+```{r}
+posterior_summary(fit4.3)[1:4, ] %>% round(digits = 3)
+posterior_summary(fit4.4)[1:4, ] %>% round(digits = 3)
+```
+
+```{r}
+ce <- conditional_effects(fit4.4, effects = "age_14:coa")
+str(ce)
+```
+
+
+```{r}
+plot(ce)
+```
+
+```{r}
+ce %>% 
+  plot(points = T,
+       point_args = list(size = 1/4, alpha = 1/4, width = .05, height = .05, color = "black"),
+       theme = theme(panel.grid = element_blank()))
+```
+
+
+## 4.6 Comparing models using deviance statistics
+
+## 4.7 Using Wald statistics to test composite hypotheses about fixed effects
+
+## 4.8 Evaluating the tenability of a model's assumptions
+
+## 4.9 Model-based (Empirical Bayes) estimates of the individual growth parameters
