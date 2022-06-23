@@ -1,0 +1,752 @@
+---
+title: "note05"
+output: html_notebook
+---
+
+# Session info
+
+## 5 Treating Time More Flexibly
+
+## 5.1 Variably spaced measurement occasions
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+reading_pp <- read_csv("alda/reading_pp.csv")
+reading_pp
+```
+
+```{r}
+reading_pp %>%
+  ggplot(aes(age, wave)) +
+  geom_vline(xintercept = c(6.5, 8.5, 10.5), color = "white") +
+  geom_jitter(alpha = .5, height = .33, width = 0) +
+  scale_x_continuous(breaks = c(6.5, 8.5, 10.5)) +
+  scale_y_continuous(breaks = 1:3) +
+  ggtitle("This is what occasion creep looks like.",
+    subtitle = "As the waves go by, the variation of the ages widens and their central tendency\ncreeps away from the ideal point."
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+set.seed(5)
+reading_pp %>%
+  nest(data = c(wave, agegrp, age, piat)) %>%
+  slice_sample(n = 9) %>%
+  unnest(data) %>%
+  mutate(id = ifelse(id < 10, str_c("0", id), id) %>% str_c("id = ", .)) %>%
+  pivot_longer(contains("age")) %>%
+  ggplot(aes(value, piat, color = name)) +
+  geom_point(alpha = 2 / 3) +
+  geom_smooth(method = "lm", se = FALSE, size = 1 / 2) +
+  scale_color_viridis_d(NULL, option = "B", end = .5, direction = -1) +
+  xlab("measure of age") +
+  coord_cartesian(xlim = c(5, 12), ylim = c(0, 80)) +
+  facet_wrap(~id) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+reading_pp <-
+  reading_pp %>%
+  mutate(
+    agegrp_c = agegrp - 6.5,
+    age_c = age - 6.5
+  )
+reading_pp
+```
+
+```{r}
+library(rethinking)
+```
+
+```{r}
+n <- 1e6
+set.seed(5)
+lkj <-
+  tibble(eta = c(1, 2, 3, 4)) %>%
+  mutate(draws = purrr::map(eta, ~ rlkjcorr(n, K = 2, eta = .)[, 2, 1])) %>%
+  unnest(draws)
+lkj
+```
+
+```{r}
+lkj %>%
+  mutate(eta = factor(eta)) %>%
+  ggplot(aes(draws, fill = eta, color = eta)) +
+  geom_density(size = 0, alpha = 2 / 3) +
+  geom_text(
+    data = tibble(
+      draws = c(.75, .35),
+      y = c(.6, 1.05),
+      label = c("eta = 1", "eta = 4"),
+      eta = c(1, 4) %>% as.factor()
+    ),
+    aes(y = y, label = label)
+  ) +
+  scale_fill_viridis_d(option = "A", end = .5) +
+  scale_color_viridis_d(option = "A", end = .5) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  xlab(expression(rho)) +
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+```
+
+```{r}
+detach(package:rethinking, unload = TRUE)
+library(brms)
+```
+
+```{r}
+fit5.1 <-
+  brm(
+    data = reading_pp,
+    family = gaussian,
+    piat ~ 0 + Intercept + agegrp_c + (1 + agegrp_c | id),
+    prior = c(
+      prior(normal(100, 30), class = b, coef = Intercept),
+      prior(normal(0, 30), class = b, coef = agegrp_c),
+      prior(student_t(3, 0, 15), class = sd),
+      prior(student_t(3, 0, 15), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.01"
+  )
+```
+
+```{r}
+fit5.2 <-
+  brm(
+    data = reading_pp,
+    family = gaussian,
+    piat ~ 0 + Intercept + age_c + (1 + age_c | id),
+    prior = c(
+      prior(normal(100, 30), class = b, coef = Intercept),
+      prior(normal(0, 30), class = b, coef = age_c),
+      prior(student_t(3, 0, 15), class = sd),
+      prior(student_t(3, 0, 15), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.02"
+  )
+```
+
+```{r}
+print(fit5.1, digits = 3)
+```
+
+```{r}
+print(fit5.2, digits = 3)
+```
+
+```{r}
+fixef(fit5.1) %>% round(digits = 3)
+```
+
+```{r}
+fixef(fit5.2) %>% round(digits = 3)
+```
+
+```{r}
+VarCorr(fit5.1)$residual$sd %>% round(digits = 3)
+```
+
+```{r}
+VarCorr(fit5.2)$residual$sd %>% round(digits = 3)
+```
+
+```{r}
+fit5.1 <- add_criterion(fit5.1, c("loo", "waic"))
+fit5.2 <- add_criterion(fit5.2, c("loo", "waic"))
+```
+
+```{r}
+loo_compare(fit5.1, fit5.2, criterion = "waic") %>%
+  print(simplify = FALSE)
+```
+
+```{r}
+loo_compare(fit5.1, fit5.2, criterion = "loo") %>%
+  print(simplify = FALSE)
+```
+
+```{r}
+model_weights(fit5.1, fit5.2, weights = "waic") %>% round(digits = 3)
+```
+
+```{r}
+model_weights(fit5.1, fit5.2, weights = "loo") %>% round(digits = 3)
+```
+
+## 5.2 Varying numbers of measurement occasions
+
+```{r}
+wages_pp <- read_csv("alda/wages_pp.csv")
+glimpse(wages_pp)
+```
+
+```{r}
+wages_pp %>%
+  select(id, exper, lnw, black, hgc, uerate) %>%
+  filter(id %in% c(206, 332, 1028))
+```
+
+```{r}
+wages_pp %>%
+  count(id) %>%
+  ggplot(aes(y = n)) +
+  geom_bar() +
+  scale_y_continuous("# measurement occasions", breaks = 1:13) +
+  xlab("count of cases") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+wages_pp %>%
+  filter(id %in% c(206, 332, 1028)) %>%
+  mutate(id = factor(id)) %>%
+  ggplot(aes(exper, lnw, color = id)) +
+  geom_point() +
+  geom_line() +
+  scale_color_viridis_d(option = "B", begin = .35, end = .8) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+log(20172.11)
+```
+
+```{r}
+log(20172.11 / (40 * 52))
+```
+
+```{r}
+log(3.80)
+```
+
+```{r}
+get_prior(
+  data = wages_pp,
+  family = gaussian,
+  lnw ~ 0 + Intercept + exper + (1 + exper | id)
+)
+```
+
+```{r}
+fit5.3 <-
+  brm(
+    data = wages_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + exper + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b, coef = exper),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2500, warmup = 1000, chains = 3, cores = 3,
+    seed = 5,
+    file = "fits/fit05.03"
+  )
+```
+
+```{r}
+print(fit5.3, digits = 3)
+```
+
+```{r}
+post <-
+  posterior_samples(fit5.3) %>%
+  transmute(percent_change = 100 * (exp(b_exper) - 1))
+post
+```
+
+```{r}
+library(tidybayes)
+post %>%
+  ggplot(aes(x = percent_change, y = 0)) +
+  stat_halfeye(.width = .95) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(
+    title = "Percent change",
+    x = expression(100 * (italic(e)^hat(gamma)[1][0]) - 1)
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+post %>%
+  median_qi(percent_change)
+```
+
+```{r}
+wages_pp <-
+  wages_pp %>%
+  rename(hgc_9 = hgc.9)
+```
+
+```{r}
+wages_pp %>%
+  pivot_longer(c(black, hgc_9)) %>%
+  ggplot(aes(value)) +
+  geom_bar() +
+  facet_wrap(~name, scales = "free") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+sd(wages_pp$hgc_9)
+```
+
+```{r}
+fit5.4 <-
+  brm(
+    data = wages_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + black + exper + exper:hgc_9 + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2500, warmup = 1000, chains = 3, cores = 3,
+    seed = 5,
+    file = "fits/fit05.04"
+  )
+```
+
+```{r}
+print(fit5.4, digits = 3)
+```
+
+```{r}
+post <- posterior_samples(fit5.4)
+```
+
+```{r}
+post %>%
+  transmute(
+    `sigma[0]^2` = sd_id__Intercept^2,
+    `sigma[1]^2` = sd_id__exper^2,
+    `sigma[epsilon]^2` = sigma^2
+  ) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value, name)) +
+  stat_halfeye(.widht = 95, normalize = "xy") +
+  scale_y_discrete(NULL, labels = ggplot2:::parse_safe) +
+  coord_cartesian(ylim = c(1.4, 3.4)) +
+  theme(
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+post %>%
+  select(starts_with("b_")) %>%
+  set_names(str_c(
+    "gamma",
+    c("[0][0]", "[0][1]", "[0][2]", "[1][0]", "[1][1]", "[1][2]")
+  )) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value, name)) +
+  geom_vline(xintercept = 0, color = "white") +
+  stat_pointinterval(.width = .95, size = 1 / 2) +
+  scale_y_discrete(NULL, labels = ggplot2:::parse_safe) +
+  theme(
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+fit5.5 <-
+  brm(
+    data = wages_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2500, warmup = 1000, chains = 3, cores = 3,
+    seed = 5,
+    file = "fits/fit05.05"
+  )
+```
+
+```{r}
+print(fit5.5, digits = 3)
+```
+
+```{r}
+fit5.3 <- add_criterion(fit5.3, criterion = "waic")
+fit5.4 <- add_criterion(fit5.4, criterion = "waic")
+fit5.5 <- add_criterion(fit5.5, criterion = "waic")
+```
+
+```{r}
+loo_compare(fit5.3, fit5.4, fit5.5, criterion = "waic") %>%
+  print(simplify = FALSE)
+```
+
+```{r}
+model_weights(fit5.3, fit5.4, fit5.5, weights = "waic") %>%
+  round(digits = 3)
+```
+
+```{r}
+nd <-
+  crossing(
+    black = 0:1,
+    hgc_9 = c(0, 3)
+  ) %>%
+  expand(nesting(black, hgc_9),
+    exper = seq(0, 11, length.out = 30)
+  )
+f <-
+  fitted(fit5.5,
+    newdata = nd,
+    re_formula = NA
+  ) %>%
+  data.frame() %>%
+  bind_cols(nd)
+f
+```
+
+```{r}
+f %>%
+  mutate(
+    black = factor(black, labels = c("Latinos and Whites", "Blacks")),
+    hgc_9 = factor(hgc_9, labels = c("9th grade dropouts", "12th grade dropouts"))
+  ) %>%
+  ggplot(aes(exper, color = black, fill = black)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5), size = 0, alpha = 1 / 4) +
+  geom_line(aes(y = Estimate)) +
+  scale_fill_viridis_d(NULL, option = "C", begin = .25, end = .75) +
+  scale_color_viridis_d(NULL, option = "C", begin = .25, end = .75) +
+  ylab("lnw") +
+  coord_cartesian(ylim = c(1.6, 2.4)) +
+  facet_wrap(~hgc_9) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+nd <-
+  wages_pp %>%
+  filter(id %in% c(206, 332, 1028))
+f <- fitted(fit5.5, newdata = nd) %>%
+  data.frame() %>%
+  bind_cols(nd)
+f
+```
+
+```{r}
+f %>%
+  mutate(id = str_c("id = ", id)) %>%
+  ggplot(aes(x = exper)) +
+  # geom_pointrange(aes(y = Estimate, ymin = Q2.5, ymax = Q97.5, color = id))
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = id), alpha = 1 / 3) +
+  geom_line(aes(y = Estimate, color = id), alpha = 2 / 3) +
+  geom_point(aes(y = lnw)) +
+  labs(subtitle = "The black dots are the original data. The colored lines and areas are\nthe participant-specific posterior means and 95% intervals.") +
+  facet_wrap(~id) +
+  theme(panel.grid = element_blank(), legend.position = "none")
+```
+
+```{r}
+fit5.3$model
+```
+
+```{r}
+wages_small_pp <- read.csv("alda/wages_small_pp.csv") %>%
+  rename(hgc_9 = hcg.9)
+wages_small_pp
+```
+
+```{r}
+wages_small_pp %>%
+  count(id) %>%
+  ggplot(aes(y = n)) +
+  geom_bar() +
+  scale_y_continuous("# measurement occasions", breaks = 1:13, limits = c(.5, 13)) +
+  xlab("count of cases") +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+fit5.6 <-
+  brm(
+    data = wages_small_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.06"
+  )
+```
+
+```{r}
+print(fit5.6)
+```
+
+```{r}
+post <- posterior_samples(fit5.6)
+```
+
+```{r}
+v <-
+  post %>%
+  transmute(sigma_1 = sd_id__exper) %>%
+  mutate(sigma_2_1 = sigma_1^2) %>%
+  set_names("sigma[1]", "sigma[1]^2") %>%
+  pivot_longer(everything())
+```
+
+```{r}
+v %>%
+  ggplot(aes(value, name)) +
+  stat_halfeye(.width = .95, normalize = "xy") +
+  scale_y_discrete(NULL, labels = ggplot2:::parse_safe) +
+  theme(axis.ticks.y = element_blank(), panel.grid = element_blank())
+```
+
+```{r}
+v %>%
+  group_by(name) %>%
+  mean_qi() %>%
+  mutate(across(where(is.double), round, digits = 4))
+```
+
+```{r}
+v %>%
+  group_by(name) %>%
+  median_qi() %>%
+  mutate(across(where(is.double), round, digits = 4))
+```
+
+```{r}
+v %>%
+  group_by(name) %>%
+  mode_qi() %>%
+  mutate(across(where(is.double), round, digits = 4))
+```
+
+```{r}
+fit5.7 <-
+  brm(
+    data = wages_small_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    control = list(adapt_delta = .99),
+    file = "fits/fit05.07"
+  )
+```
+
+```{r}
+print(fit5.7)
+```
+
+```{r}
+fit5.8 <-
+  brm(
+    data = wages_small_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(student_t(3, 0, 1), class = sigma)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.08"
+  )
+```
+
+```{r}
+print(fit5.8)
+```
+
+```{r}
+fit5.7 <- add_criterion(fit5.7, criterion = "waic")
+fit5.8 <- add_criterion(fit5.8, criterion = "waic")
+```
+
+```{r}
+loo_compare(fit5.7, fit5.8, criterion = "waic") %>%
+  print(simplify = FALSE, digits = 3)
+```
+
+```{r}
+tibble(x = c(0, 100)) %>%
+  ggplot(aes(x)) +
+  stat_function(fun = dgamma, n = 1e2, args = list(shape = 2, rate = 0.1)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+tibble(x = c(0, 2)) %>%
+  ggplot(aes(x)) +
+  stat_function(fun = dgamma, n = 1e2, args = list(shape = 2, rate = .1)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+fit5.9 <-
+  brm(
+    data = wages_small_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(gamma(2, 0.1), class = sd, group = id, coef = exper),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.09"
+  )
+```
+
+```{r}
+print(fit5.9, digits = 3)
+```
+
+```{r}
+posterior_samples(fit5.9) %>%
+  transmute(sigma_1 = sd_id__exper) %>%
+  mutate(sigma_2_1 = sigma_1^2) %>%
+  set_names("sigma[1]", "sigma[1]^2") %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value, name)) +
+  stat_halfeye(.width = .95, normalize = "xy") +
+  scale_y_discrete(NULL, labels = ggplot2:::parse_safe) +
+  theme(
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+posterior_samples(fit5.9) %>%
+  transmute(sigma_1 = sd_id__exper) %>%
+  mutate(sigma_2_1 = sigma_1^2) %>%
+  set_names("sigma[1]", "sigma[1]^2") %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(value, name)) +
+  stat_halfeye(.width = .95, normalize = "xy") +
+  scale_y_discrete(NULL, labels = ggplot2:::parse_safe) +
+  coord_cartesian(xlim = c(0, 0.01)) +
+  theme(
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+posterior_samples(fit5.3) %>%
+  median_qi(sd_id__exper)
+```
+
+```{r}
+1 / 0.04137229
+```
+
+```{r}
+tibble(x = c(0, 1)) %>%
+  ggplot(aes(x)) +
+  stat_function(fun = dgamma, n = 1e3, args = list(shape = 2, rate = 24.0716)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+fit5.10 <-
+  brm(
+    data = wages_small_pp,
+    family = gaussian,
+    lnw ~ 0 + Intercept + hgc_9 + exper + exper:black + (1 + exper | id),
+    prior = c(
+      prior(normal(1.335, 1), class = b, coef = Intercept),
+      prior(normal(0, 0.5), class = b),
+      prior(student_t(3, 0, 1), class = sd),
+      prior(gamma(2, 24.0716), class = sd, group = id, coef = exper),
+      prior(student_t(3, 0, 1), class = sigma),
+      prior(lkj(4), class = cor)
+    ),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    seed = 5,
+    file = "fits/fit05.10"
+  )
+```
+
+```{r}
+print(fit5.10, digits = 3)
+```
+
+```{r}
+tibble(
+  `full data, student_t(3, 0, 1) prior` = VarCorr(fit5.3, summary = F)[[1]][[1]][1:4000, 2],
+  `small data, student_t(3, 0, 1) prior` = VarCorr(fit5.7, summary = F)[[1]][[1]][, 2],
+  `small data, gamma(2, 0.1) prior` = VarCorr(fit5.9, summary = F)[[1]][[1]][, 2],
+  `small data, gamma(2, 24.0716) prior` = VarCorr(fit5.10, summary = F)[[1]][[1]][, 2]
+) %>%
+  pivot_longer(everything()) %>%
+  mutate(name = factor(name,
+    levels = c(
+      "full data, student_t(3, 0, 1) prior",
+      "small data, student_t(3, 0, 1) prior",
+      "small data, gamma(2, 0.1) prior",
+      "small data, gamma(2, 24.0716) prior"
+    )
+  )) %>%
+  ggplot(aes(x = value, y = 0, fill = name == "full data, student_t(3, 0, 1) prior")) +
+  geom_vline(xintercept = 0, color = "white") +
+  stat_halfeye(.width = .95, normalize = "panels") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  scale_fill_manual(values = c("grey75", "darkgoldenrod2")) +
+  facet_wrap(~name, ncol = 1) +
+  theme(legend.position = "none", panel.grid = element_blank())
+```
+
+## 5.3 Time-varying predictors
+
+## 5.4 Recentering the effect of TIME
