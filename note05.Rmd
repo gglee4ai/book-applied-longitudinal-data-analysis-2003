@@ -14,7 +14,7 @@ library(tidyverse)
 ```
 
 ```{r}
-reading_pp <- read_csv("alda/reading_pp.csv")
+reading_pp <- read_csv("data/reading_pp.csv")
 reading_pp
 ```
 
@@ -190,7 +190,7 @@ model_weights(fit5.1, fit5.2, weights = "loo") %>% round(digits = 3)
 ## 5.2 Varying numbers of measurement occasions
 
 ```{r}
-wages_pp <- read_csv("alda/wages_pp.csv")
+wages_pp <- read_csv("data/wages_pp.csv")
 glimpse(wages_pp)
 ```
 
@@ -474,7 +474,7 @@ fit5.3$model
 ```
 
 ```{r}
-wages_small_pp <- read.csv("alda/wages_small_pp.csv") %>%
+wages_small_pp <- read.csv("data/wages_small_pp.csv") %>%
   rename(hgc_9 = hcg.9)
 wages_small_pp
 ```
@@ -901,7 +901,7 @@ mcmc_rhat(brms::rhat(fit5.4)[1:20]) +
 ## 5.3 Time-varying predictors
 
 ```{r}
-unemployment_pp <- read_csv("alda/unemployment_pp.csv")
+unemployment_pp <- read_csv("data/unemployment_pp.csv")
 unemployment_pp
 ```
 
@@ -1661,7 +1661,7 @@ model_weights(fit5.16, fit5.17, fit5.18, weights = "waic") %>%
 ## 5.4 Recentering the effect of TIME
 
 ```{r}
-medication_pp <- read_csv("alda/medication_pp.csv")
+medication_pp <- read_csv("data/medication_pp.csv")
 medication_pp
 ```
 

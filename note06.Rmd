@@ -12,7 +12,7 @@ library(tidyverse)
 ```
 
 ```{r}
-wages_pp <- read_csv("alda/wages_pp.csv")
+wages_pp <- read_csv("data/wages_pp.csv")
 wages_pp
 ```
 
@@ -867,7 +867,7 @@ fitted(fit4.6,
 
 ```{r}
 berkeley_pp <-
-  read_csv("alda/berkeley_pp.csv") %>%
+  read_csv("data/berkeley_pp.csv") %>%
   mutate(time = age)
 berkeley_pp
 ```
@@ -1552,7 +1552,7 @@ library(tidyverse)
 ```
 
 ```{r}
-foxngeese_pp <- read_csv("alda/foxngeese_pp.csv")
+foxngeese_pp <- read_csv("data/foxngeese_pp.csv")
 foxngeese_pp
 ```
 

@@ -11,7 +11,7 @@ editor_options:
 
 ```{r}
 library(tidyverse)
-alcohol1_pp <- read_csv("alda/alcohol1_pp.csv")
+alcohol1_pp <- read_csv("data/alcohol1_pp.csv")
 alcohol1_pp
 ```
 
