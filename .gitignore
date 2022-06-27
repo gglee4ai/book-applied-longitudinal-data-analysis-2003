@@ -1,5 +1,6 @@
 # my gitignores
 .DS_Store
+fit06.0*
 
 # History files
 .Rhistory
